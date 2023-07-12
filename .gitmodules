@@ -1,0 +1,3 @@
+[submodule "fastnes"]
+	path = fastnes
+	url = https://github.com/astavie/fastnes
