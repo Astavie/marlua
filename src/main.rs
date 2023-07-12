@@ -8,7 +8,7 @@ use std::{
 };
 
 use fastnes::{
-    input::{self, Controllers},
+    input::Controllers,
     nes::NES,
     ppu::{DrawOptions, FastPPU},
 };
@@ -22,7 +22,7 @@ use glutin::{
 };
 use glutin_winit::{DisplayBuilder, GlWindow};
 use raw_window_handle::HasRawWindowHandle;
-use rlua::{prelude::LuaError, Context, FromLua, Function, MultiValue, Scope};
+use rlua::{prelude::LuaError, Context, FromLua, Function, MultiValue};
 use rlua::{Lua, StdLib};
 use winit::{
     dpi::PhysicalSize,
@@ -335,8 +335,10 @@ fn main() -> Result<(), LuaError> {
     });
 
     let clone = frame.clone();
-    let handle = thread::spawn(move || {
-        let lua = Lua::new_with(StdLib::all().difference(StdLib::OS | StdLib::IO | StdLib::DEBUG));
+    let _handle = thread::spawn(move || {
+        let lua = Lua::new_with(
+            StdLib::all().difference(StdLib::OS | StdLib::IO | StdLib::DEBUG | StdLib::PACKAGE),
+        );
         lua.context(|ctx| run_lua(ctx, clone)).unwrap();
     });
 
