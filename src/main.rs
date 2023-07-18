@@ -1,16 +1,18 @@
 use std::{
-    fs::read_to_string,
+    fs::{read, read_to_string},
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
     },
     thread,
+    time::Instant,
 };
 
 use fastnes::{
+    cart::{Cartridge, NROM},
     input::Controllers,
     nes::NES,
-    ppu::{DrawOptions, FastPPU},
+    ppu::{DrawOptions, FastPPU, PPU},
 };
 use femtovg::{imgref::Img, renderer::OpenGl, rgb::RGBA8, Canvas, ImageFlags, Paint, Path};
 use glutin::{
@@ -112,11 +114,13 @@ impl Screen {
     }
 }
 
-unsafe fn as_rgba<const N: usize>(p: &[fastnes::ppu::Color; N]) -> &[RGBA8] {
-    ::core::slice::from_raw_parts(
-        (p as *const [fastnes::ppu::Color; N]) as *const RGBA8,
-        ::core::mem::size_of::<[fastnes::ppu::Color; N]>(),
-    )
+fn as_rgba<const N: usize>(p: &[fastnes::ppu::Color; N]) -> &[RGBA8] {
+    unsafe {
+        ::core::slice::from_raw_parts(
+            (p as *const [fastnes::ppu::Color; N]) as *const RGBA8,
+            ::core::mem::size_of::<[fastnes::ppu::Color; N]>(),
+        )
+    }
 }
 
 fn run_lua<'lua>(ctx: Context<'lua>, frame: Arc<Frame>) -> Result<(), LuaError> {
@@ -125,8 +129,9 @@ fn run_lua<'lua>(ctx: Context<'lua>, frame: Arc<Frame>) -> Result<(), LuaError> 
 
     // create emulator
     let status = Arc::new(AtomicU8::new(0));
-    let mut emulator = NES::read_ines(
-        "rom/smb.nes",
+    let file = read("rom/smb.nes").unwrap();
+    let mut emulator = NES::new(
+        NROM::from_ines(file),
         Controllers::standard(&status),
         FastPPU::new(),
     );
@@ -289,10 +294,10 @@ fn run_lua<'lua>(ctx: Context<'lua>, frame: Arc<Frame>) -> Result<(), LuaError> 
 
     // run the rest of the emulator
     loop {
-        clock.loop_start();
+        // clock.loop_start();
         emulator.next_frame();
         frame.update(&mut emulator);
-        clock.loop_sleep();
+        // clock.loop_sleep();
     }
 }
 
@@ -302,7 +307,7 @@ struct Frame {
 }
 
 impl Frame {
-    fn update(self: &Arc<Self>, emulator: &mut NES) {
+    fn update<C: Cartridge, P: PPU>(self: &Arc<Self>, emulator: &mut NES<C, P>) {
         if self
             .ready
             .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
@@ -313,7 +318,7 @@ impl Frame {
         }
 
         let mut frame = self.frame.lock().unwrap();
-        *frame = emulator.frame(DrawOptions::All);
+        *frame = emulator.draw_frame(DrawOptions::All);
     }
     fn frame(self: &Arc<Self>) -> [fastnes::ppu::Color; 61440] {
         self.ready.store(true, Ordering::Relaxed);
@@ -347,7 +352,7 @@ fn main() -> Result<(), LuaError> {
         let frame = frame.frame();
 
         // create image
-        let img = Img::new(unsafe { as_rgba(&frame) }, 256, 240);
+        let img = Img::new(as_rgba(&frame), 256, 240);
         let image = canvas.create_image(img, ImageFlags::NEAREST).unwrap();
 
         // draw image
