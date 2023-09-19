@@ -1,11 +1,12 @@
 use std::{
+    cell::RefCell,
     fs::{read, read_to_string},
+    rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc, Mutex,
     },
-    thread,
-    time::Instant,
+    thread, unreachable,
 };
 
 use fastnes::{
@@ -151,6 +152,8 @@ fn run_lua<'lua>(ctx: Context<'lua>, frame: Arc<Frame>) -> Result<(), LuaError> 
     frame.update(&mut emulator);
 
     // run script
+    let emulator = Rc::new(RefCell::new(emulator));
+
     ctx.scope(|scope| {
         let globals = ctx.globals();
         globals.set(
@@ -158,12 +161,21 @@ fn run_lua<'lua>(ctx: Context<'lua>, frame: Arc<Frame>) -> Result<(), LuaError> 
             scope.create_function_mut(|_, (time,): (u32,)| {
                 for _ in 0..time {
                     clock.loop_start();
+
+                    let mut emulator = emulator.borrow_mut();
                     emulator.next_frame();
                     frame.update(&mut emulator);
+
                     clock.loop_sleep();
                 }
                 Ok(())
             })?,
+        )?;
+
+        globals.set(
+            "read",
+            scope
+                .create_function(|_, (addr,): (u16,)| Ok(emulator.borrow().read_internal(addr)))?,
         )?;
 
         globals.set(
@@ -293,11 +305,17 @@ fn run_lua<'lua>(ctx: Context<'lua>, frame: Arc<Frame>) -> Result<(), LuaError> 
     })?;
 
     // run the rest of the emulator
+    let mut emulator = match Rc::try_unwrap(emulator) {
+        Ok(t) => t,
+        Err(_) => unreachable!(),
+    }
+    .into_inner();
+
     loop {
-        // clock.loop_start();
+        clock.loop_start();
         emulator.next_frame();
         frame.update(&mut emulator);
-        // clock.loop_sleep();
+        clock.loop_sleep();
     }
 }
 
